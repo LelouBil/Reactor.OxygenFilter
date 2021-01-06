@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
@@ -13,6 +14,8 @@ namespace Reactor.Greenhouse.Setup
     {
         public BaseProvider Provider { get; }
         public string Name { get; }
+        
+        public string DataFolder { get; private set; }
         public char Postfix { get; }
         public string Path { get; }
         public string Dll { get; }
@@ -32,15 +35,18 @@ namespace Reactor.Greenhouse.Setup
         {
             Provider.Setup();
             await Provider.DownloadAsync();
+
+            DataFolder = Directory.GetDirectories(Path).First(d => d.EndsWith("_Data"));
             UpdateVersion();
         }
+        
 
         public void UpdateVersion()
         {
             if (Version != null)
                 return;
 
-            Version = GameVersionParser.Parse(System.IO.Path.Combine(Path, "Among Us_Data", "globalgamemanagers"));
+            Version = GameVersionParser.Parse(System.IO.Path.Combine(DataFolder, "globalgamemanagers"));
         }
 
         public void Dump()
@@ -57,7 +63,7 @@ namespace Reactor.Greenhouse.Setup
 
             if (!Il2CppDumper.Il2CppDumper.PerformDump(
                 IOPath.Combine(Path, "GameAssembly.dll"),
-                IOPath.Combine(Path, "Among Us_Data", "il2cpp_data", "Metadata", "global-metadata.dat"),
+                IOPath.Combine(DataFolder, "il2cpp_data", "Metadata", "global-metadata.dat"),
                 Path,
                 new Config
                 {

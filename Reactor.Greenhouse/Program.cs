@@ -13,6 +13,7 @@ using Newtonsoft.Json.Serialization;
 using Reactor.Greenhouse.Setup;
 using Reactor.Greenhouse.Setup.Provider;
 using Reactor.OxygenFilter;
+using TestProject;
 
 namespace Reactor.Greenhouse
 {
@@ -22,22 +23,49 @@ namespace Reactor.Greenhouse
         {
             var rootCommand = new RootCommand
             {
-                new Option<bool>("steam"),
-                new Option<bool>("itch"),
+                new Argument<FileInfo>("configuration", "The configuration file to use")
             };
 
-            rootCommand.Handler = CommandHandler.Create<bool, bool>(GenerateAsync);
+            rootCommand.Handler = CommandHandler.Create<FileInfo>(GenerateAsync);
 
             return rootCommand.InvokeAsync(args);
         }
 
-        public static async Task<int> GenerateAsync(bool steam, bool itch)
+        public static async Task<int> GenerateAsync(FileInfo configuration)
         {
             var gameManager = new GameManager();
 
+            JsonSerializer serializer = JsonSerializer.Create(new JsonSerializerSettings
+            {
+                Converters = new List<JsonConverter>
+                {
+                    new ProviderConfigConverter()
+                }
+            });
+
+            GreenhouseConfiguration config;
+            if (configuration == null)
+            {
+                Console.WriteLine($"Please specify a configuration file");
+                return 1;
+            }
+            using (StreamReader streamReader = configuration.OpenText())
+            {
+                using (JsonTextReader jsonTextReader = new JsonTextReader(streamReader))
+                {
+                    config = serializer.Deserialize<GreenhouseConfiguration>(jsonTextReader);
+                }
+            }
+
+            if (config == null)
+            {
+                Console.WriteLine($"Unable to read the configuration file");
+                return 1;
+            }
+
             try
             {
-                await gameManager.SetupAsync(steam, itch);
+                await gameManager.SetupAsync(config.SourceProviderConfig, config.LatestProviderConfig, config.GameName);
             }
             catch (ProviderConnectionException e)
             {
@@ -54,19 +82,14 @@ namespace Reactor.Greenhouse
                 ContractResolver = ShouldSerializeContractResolver.Instance,
             };
 
-            Console.WriteLine($"Generating mappings from {gameManager.PreObfuscation.Name} ({gameManager.PreObfuscation.Version})");
-            using var old = ModuleDefinition.ReadModule(File.OpenRead(gameManager.PreObfuscation.Dll));
+            Console.WriteLine(
+                $"Generating mappings from {gameManager.SourceProvider.Version}");
+            using var old = ModuleDefinition.ReadModule(File.OpenRead(gameManager.SourceProvider.Dll));
 
-            if (steam)
-            {
-                await GenerateAsync(gameManager.Steam, old);
-            }
 
-            if (itch)
-            {
-                await GenerateAsync(gameManager.Itch, old);
-            }
-
+            await GenerateAsync(gameManager.LatestProvider, old);
+            Console.WriteLine("Finished generating");
+            
             return 0;
         }
 
@@ -80,7 +103,8 @@ namespace Reactor.Greenhouse
 
             var generated = Generator.Generate(old, moduleDef);
 
-            await File.WriteAllTextAsync(Path.Combine("work", version + postfix + ".generated.json"), JsonConvert.SerializeObject(generated, Formatting.Indented));
+            await File.WriteAllTextAsync(Path.Combine("work", version + postfix + ".generated.json"),
+                JsonConvert.SerializeObject(generated, Formatting.Indented));
 
             Apply(generated, Path.Combine("Mappings", "universal.json"));
             Apply(generated, Path.Combine("Mappings", version + postfix + ".json"));
@@ -88,7 +112,8 @@ namespace Reactor.Greenhouse
             generated.Compile(moduleDef);
 
             Directory.CreateDirectory(Path.Combine("Mappings", "bin"));
-            await File.WriteAllTextAsync(Path.Combine("Mappings", "bin", game.Name.ToLower() + ".json"), JsonConvert.SerializeObject(generated));
+            await File.WriteAllTextAsync(Path.Combine("Mappings", "bin", game.Name.ToLower() + ".json"),
+                JsonConvert.SerializeObject(generated));
         }
 
         private static void Apply(Mappings generated, string file)
@@ -112,7 +137,9 @@ namespace Reactor.Greenhouse
                 {
                     if (property.PropertyType.GetInterface(nameof(IEnumerable)) != null)
                     {
-                        property.ShouldSerialize = instance => (instance?.GetType().GetProperty(property.UnderlyingName!)!.GetValue(instance) as IEnumerable<object>)?.Count() > 0;
+                        property.ShouldSerialize = instance =>
+                            (instance?.GetType().GetProperty(property.UnderlyingName!)!.GetValue(instance) as
+                                IEnumerable<object>)?.Count() > 0;
                     }
                 }
 

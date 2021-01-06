@@ -16,6 +16,13 @@ namespace Reactor.Greenhouse.Setup.Provider
 {
     public class ItchProvider : BaseProvider
     {
+        public string GameUrl { get; init; }= "https://innersloth.itch.io/among-us";
+
+        public ItchProvider()
+        {
+            
+        }
+
         private HttpClient HttpClient { get; } = new HttpClient(new HttpClientHandler
         {
             CookieContainer = new CookieContainer()
@@ -68,7 +75,7 @@ namespace Reactor.Greenhouse.Setup.Provider
 
             Console.WriteLine("Logged into itch.io");
 
-            var pageDocument = htmlParser.ParseDocument(await HttpClient.GetStringAsync("https://innersloth.itch.io/among-us"));
+            var pageDocument = htmlParser.ParseDocument(await HttpClient.GetStringAsync(GameUrl));
             var downloadPageUrl = ((IHtmlAnchorElement) pageDocument.QuerySelector("a[class=button]")).Href;
 
             var downloadDocument = htmlParser.ParseDocument(await HttpClient.GetStringAsync(downloadPageUrl));
@@ -81,7 +88,7 @@ namespace Reactor.Greenhouse.Setup.Provider
                 .Single(x => x.Success)
                 .Groups[1].Value;
 
-            var json = await HttpClient.PostAsync($"https://innersloth.itch.io/among-us/file/{uploadId}?key={key}", null);
+            var json = await HttpClient.PostAsync($"{GameUrl}/file/{uploadId}?key={key}", null);
             var response = JsonConvert.DeserializeObject<DownloadResponse>(await json.Content.ReadAsStringAsync());
 
             Console.WriteLine($"Downloading {response.Url}");

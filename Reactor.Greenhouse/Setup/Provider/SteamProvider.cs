@@ -10,44 +10,32 @@ namespace Reactor.Greenhouse.Setup.Provider
 {
     public class SteamProvider : BaseProvider
     {
-        private const uint AppId = 945360;
-        private const uint DepotId = 945361;
-        private const ulong PreObfuscationManifest = 3596575937380717449;
+        public uint AppId { get; init; } = 945360;
+        public uint DepotId { get; init; } = 945361;
+        public ulong? Manifest { get; init; } = 3596575937380717449;
 
-        public bool IsPreObfuscation { get; }
 
-        public SteamProvider(bool isPreObfuscation)
+        public SteamProvider()
         {
-            IsPreObfuscation = isPreObfuscation;
+        }
+
+        public ulong GetLatestManifest()
+        {
+            DepotConfigStore.LoadFromFile(Path.Combine(Game.Path, ".DepotDownloader", "depot.config"));
+
+            ContentDownloader.steam3!.RequestAppInfo(AppId);
+
+            var depots = ContentDownloader.GetSteam3AppSection(AppId, EAppInfoSection.Depots);
+            var latestManifest = depots[DepotId.ToString()]["manifests"][ContentDownloader.DEFAULT_BRANCH].AsUnsignedLong();
+
+            return latestManifest;
         }
 
         public override bool IsUpdateNeeded()
         {
-            DepotConfigStore.LoadFromFile(Path.Combine(Game.Path, ".DepotDownloader", "depot.config"));
             if (DepotConfigStore.Instance.InstalledManifestIDs.TryGetValue(DepotId, out var installedManifest))
             {
-                if (IsPreObfuscation)
-                {
-                    if (installedManifest == PreObfuscationManifest)
-                    {
-                        return false;
-                    }
-                }
-                else
-                {
-                    if (ContentDownloader.steam3 == null)
-                    {
-                        ContentDownloader.InitializeSteam3();
-                    }
-
-                    ContentDownloader.steam3!.RequestAppInfo(AppId);
-
-                    var depots = ContentDownloader.GetSteam3AppSection(AppId, EAppInfoSection.Depots);
-                    if (installedManifest == depots[DepotId.ToString()]["manifests"][ContentDownloader.DEFAULT_BRANCH].AsUnsignedLong())
-                    {
-                        return false;
-                    }
-                }
+                return GetLatestManifest() != installedManifest;
             }
 
             return true;
@@ -67,7 +55,7 @@ namespace Reactor.Greenhouse.Setup.Provider
             if (environmentVariable != null)
             {
                 var split = environmentVariable.Split(":");
-                if(!ContentDownloader.InitializeSteam3(split[0], split[1]))
+                if (!ContentDownloader.InitializeSteam3(split[0], split[1]))
                 {
                     throw new SteamProviderConnectionException("Wrong password");
                 }
@@ -97,7 +85,6 @@ namespace Reactor.Greenhouse.Setup.Provider
                 {
                     throw new SteamProviderConnectionException("Unable to initialize Steam");
                 }
-
             }
 
             ContentDownloader.Config.UsingFileList = true;
@@ -107,15 +94,17 @@ namespace Reactor.Greenhouse.Setup.Provider
             };
             ContentDownloader.Config.FilesToDownloadRegex = new List<Regex>
             {
-                new Regex("^Among Us_Data/il2cpp_data/Metadata/global-metadata.dat$".Replace("/", "[\\\\|/]"), RegexOptions.Compiled | RegexOptions.IgnoreCase),
-                new Regex("^Among Us_Data/globalgamemanagers$".Replace("/", "[\\\\|/]"), RegexOptions.Compiled | RegexOptions.IgnoreCase)
+                new Regex(@"^(.+)_Data[\\|/]il2cpp_data[\\|/]Metadata[\\|/]global-metadata.dat$",
+                    RegexOptions.Compiled | RegexOptions.IgnoreCase),
+                new Regex(@"^(.+)_Data[\\|/]globalgamemanagers$",
+                    RegexOptions.Compiled | RegexOptions.IgnoreCase)
             };
         }
 
         public override Task DownloadAsync()
         {
             ContentDownloader.Config.InstallDirectory = Game.Path;
-            return ContentDownloader.DownloadAppAsync(AppId, DepotId, IsPreObfuscation ? PreObfuscationManifest : ContentDownloader.INVALID_MANIFEST_ID);
+            return ContentDownloader.DownloadAppAsync(AppId, DepotId, Manifest ?? GetLatestManifest());
         }
     }
 
@@ -123,7 +112,6 @@ namespace Reactor.Greenhouse.Setup.Provider
     {
         public SteamProviderConnectionException(string message) : base(message)
         {
-           
         }
     }
 }
